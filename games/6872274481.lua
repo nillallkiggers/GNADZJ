@@ -175,7 +175,7 @@ local function getSword()
 	for slot, item in store.inventory.inventory.items do
 		local swordMeta = bedwars.ItemMeta[item.itemType].sword
 		if swordMeta then
-			local swordDamage = swordMeta.baseDamage or 0
+			local swordDamage = swordMeta.damage or 0
 			if swordDamage > bestSwordDamage then
 				bestSword, bestSwordSlot, bestSwordDamage = item, slot, swordDamage
 			end
@@ -210,6 +210,7 @@ local function getStrength(plr)
 	if not plr.Player then
 		return 0
 	end
+
 	local strength = 0
 	for _, v in (store.inventories[plr.Player] or {items = {}}).items do
 		local itemmeta = bedwars.ItemMeta[v.itemType]
@@ -217,6 +218,7 @@ local function getStrength(plr)
 			strength = itemmeta.sword.damage
 		end
 	end
+
 	return strength
 end
 
@@ -1205,7 +1207,7 @@ run(function()
 		Function = function(callback)
 			if callback then
 				AimAssist:Clean(runService.Heartbeat:Connect(function(dt)
-					if entitylib.isAlive and store.hand.toolType == 'sword' and ((not ClickAim.Enabled) or (os.clock() - bedwars.SwordController.lastSwing) < 0.4) then
+					if entitylib.isAlive and store.hand.toolType == 'sword' and ((not ClickAim.Enabled) or (tick() - bedwars.SwordController.lastSwing) < 0.4) then
 						local ent = KillauraTarget.Enabled and store.KillauraTarget or entitylib.EntityPosition({
 							Range = Distance.Value,
 							Part = 'RootPart',
@@ -1275,6 +1277,62 @@ run(function()
 end)
 	
 run(function()
+	local old
+	local oldSwing
+	
+	AutoCharge = vape.Categories.Combat:CreateModule({
+	    Name = 'AutoCharge',
+	    Function = function(callback)
+	        debug.setconstant(bedwars.SwordController.attackEntity, 58, callback and 'damage' or 'multiHitCheckDurationSec')
+	        if callback then
+	            local chargeSwingTime = 0
+	            local canSwing
+	
+	            old = bedwars.SwordController.sendServerRequest
+	            bedwars.SwordController.sendServerRequest = function(self, ...)
+	                if (os.clock() - chargeSwingTime) < AutoChargeTime.Value then return end
+	                self.lastSwingServerTimeDelta = 0.5
+	                chargeSwingTime = os.clock()
+	                canSwing = true
+	
+	                local item = self:getHandItem()
+	                if item and item.tool then
+	                    self:playSwordEffect(bedwars.ItemMeta[item.tool.Name], false)
+	                end
+	
+	                return old(self, ...)
+	            end
+	
+	            oldSwing = bedwars.SwordController.playSwordEffect
+	            bedwars.SwordController.playSwordEffect = function(...)
+	                if not canSwing then return end
+	                canSwing = false
+	                return oldSwing(...)
+	            end
+	        else
+	            if old then
+	                bedwars.SwordController.sendServerRequest = old
+	                old = nil
+	            end
+	
+	            if oldSwing then
+	                bedwars.SwordController.playSwordEffect = oldSwing
+	                oldSwing = nil
+	            end
+	        end
+	    end,
+	    Tooltip = 'Allows you to get charged hits while spam clicking.'
+	})
+	AutoChargeTime = AutoCharge:CreateSlider({
+	    Name = 'Charge Time',
+	    Min = 0,
+	    Max = 0.5,
+	    Default = 0.4,
+	    Decimal = 100
+	})
+end)
+	
+run(function()
 	local AutoClicker
 	local CPS
 	local BlockCPS = {}
@@ -1297,11 +1355,6 @@ run(function()
 							end
 						end
 					elseif store.hand.toolType == 'sword' then
-						if bedwars.SwordController:getChargeState() ~= 'IDLE' then
-							bedwars.SwordController:stopCharging(store.hand.tool.Name)
-							bedwars.SwordController.chargingMaid:DoCleaning()
-						end
-	
 						bedwars.SwordController:swingSwordAtMouse(0.39)
 					end
 				end
@@ -1352,8 +1405,8 @@ run(function()
 		Name = 'CPS',
 		Min = 1,
 		Max = 9,
-		DefaultMin = 9,
-		DefaultMax = 9
+		DefaultMin = 7,
+		DefaultMax = 7
 	})
 	AutoClicker:CreateToggle({
 		Name = 'Place Blocks',
@@ -1491,7 +1544,7 @@ run(function()
 	
 							doAttack = doAttack or bedwars.SwordController:getTargetInRegion(attackRange or 3.8 * 3, 0)
 							if doAttack then
-								bedwars.SwordController:swingSwordAtMouse(0.39)
+								bedwars.SwordController:swingSwordAtMouse()
 							end
 						end
 					end
@@ -1506,8 +1559,8 @@ run(function()
 		Name = 'CPS',
 		Min = 1,
 		Max = 9,
-		DefaultMin = 9,
-		DefaultMax = 9
+		DefaultMin = 7,
+		DefaultMax = 7
 	})
 end)
 	
@@ -2012,7 +2065,7 @@ run(function()
 	local AnimationSpeed
 	local AnimationTween
 	local Limit
-	local LegitAura
+	local LegitAura = {}
 	local Particles, Boxes = {}, {}
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local AttackRemote = {FireServer = function() end}
@@ -2038,7 +2091,7 @@ run(function()
 		end
 
 		if LegitAura.Enabled then
-			if (os.clock() - bedwars.SwordController.lastSwing) > 0.2 then return false end
+			if (tick() - bedwars.SwordController.lastSwing) > 0.2 then return false end
 		end
 
 		return sword, meta
@@ -2110,6 +2163,7 @@ run(function()
 					end)
 				end
 
+				local swingCooldown = 0
 				repeat
 					local attacked, sword, meta = {}, getAttackData()
 					Attacking = false
@@ -2144,8 +2198,8 @@ run(function()
 								if not Attacking then
 									Attacking = true
 									store.KillauraTarget = v
-									if not Swing.Enabled and AnimDelay <= tick() and not LegitAura.Enabled then
-										AnimDelay = tick() + (meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or 0.25)
+									if not Swing.Enabled and AnimDelay < tick() and not LegitAura.Enabled then
+										AnimDelay = tick() + (meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or math.max(ChargeTime.Value, 0.11))
 										bedwars.SwordController:playSwordEffect(meta, false)
 										if meta.displayName:find(' Scythe') then
 											bedwars.ScytheController:playLocalAnimation()
@@ -2158,17 +2212,25 @@ run(function()
 								end
 
 								if delta.Magnitude > AttackRange.Value then continue end
+								if delta.Magnitude < 14.4 and (tick() - swingCooldown) < ChargeTime.Value then continue end
 
 								local actualRoot = v.Character.PrimaryPart
 								if actualRoot then
 									local dir = CFrame.lookAt(selfpos, actualRoot.Position).LookVector
 									local pos = selfpos + dir * math.max(delta.Magnitude - 14.399, 0)
+									swingCooldown = tick()
 									bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
 									store.attackReach = (delta.Magnitude * 100) // 1 / 100
 									store.attackReachUpdate = tick() + 1
+
+									if delta.Magnitude < 14.4 and ChargeTime.Value > 0.11 then
+										AnimDelay = tick()
+									end
+
 									AttackRemote:FireServer({
 										weapon = sword.tool,
-										chargeRatio = ChargeTime.Value,
+										chargedAttack = {chargeRatio = 0},
+										lastSwingServerTimeDelta = 0.5,
 										entityInstance = v.Character,
 										validate = {
 											raycast = {
@@ -2202,7 +2264,8 @@ run(function()
 						entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y + 0.001, vec.Z))
 					end
 
-					task.wait(#attacked > 0 and #attacked * 0.02 or 1 / UpdateRate.Value)
+					--#attacked > 0 and #attacked * 0.02 or
+					task.wait(1 / UpdateRate.Value)
 				until not Killaura.Enabled
 			else
 				store.KillauraTarget = nil
@@ -2259,10 +2322,10 @@ run(function()
 		end
 	})
 	ChargeTime = Killaura:CreateSlider({
-		Name = 'Charge time',
+		Name = 'Swing time',
 		Min = 0,
-		Max = 1,
-		Default = 0.65,
+		Max = 0.5,
+		Default = 0.42,
 		Decimal = 100
 	})
 	AngleSlider = Killaura:CreateSlider({
@@ -2469,10 +2532,10 @@ run(function()
 		end,
 		Tooltip = 'Only attacks when the sword is held'
 	})
-	LegitAura = Killaura:CreateToggle({
+	--[[LegitAura = Killaura:CreateToggle({
 		Name = 'Swing only',
 		Tooltip = 'Only attacks while swinging manually'
-	})
+	})]]
 end)
 	
 run(function()
@@ -5277,7 +5340,7 @@ run(function()
 		chest = chest and chest.Value or nil
 		local chestitems = chest and chest:GetChildren() or {}
 		if #chestitems > 1 and (Delays[chest] or 0) < tick() then
-			Delays[chest] = tick() + 0.3
+			Delays[chest] = tick() + 0.2
 			bedwars.Client:GetNamespace('Inventory'):Get('SetObservedChest'):SendToServer(chest)
 	
 			for _, v in chestitems do
@@ -7200,7 +7263,7 @@ run(function()
 				oldvalues = table.clone(tab)
 				oldfont = debug.getconstant(bedwars.DamageIndicator, 86)
 				debug.setconstant(bedwars.DamageIndicator, 86, Enum.Font[FontOption.Value])
-				debug.setconstant(bedwars.DamageIndicator, 105, Stroke.Enabled and 'Thickness' or 'Enabled')
+				debug.setconstant(bedwars.DamageIndicator, 119, Stroke.Enabled and 'Thickness' or 'Enabled')
 				tab.strokeThickness = Stroke.Enabled and 1 or false
 				tab.textSize = Size.Value
 				tab.blowUpSize = Size.Value
@@ -7213,7 +7276,7 @@ run(function()
 					tab[i] = v
 				end
 				debug.setconstant(bedwars.DamageIndicator, 86, oldfont)
-				debug.setconstant(bedwars.DamageIndicator, 105, 'Thickness')
+				debug.setconstant(bedwars.DamageIndicator, 119, 'Thickness')
 			end
 		end,
 		Tooltip = 'Customize the damage indicator'
@@ -7229,7 +7292,7 @@ run(function()
 		List = fontitems,
 		Function = function(val)
 			if DamageIndicator.Enabled then
-				debug.setconstant(bedwars.DamageIndicator, 82, val)
+				debug.setconstant(bedwars.DamageIndicator, 86, val)
 			end
 		end
 	})
@@ -7269,7 +7332,7 @@ run(function()
 		Name = 'Stroke',
 		Function = function(callback)
 			if DamageIndicator.Enabled then
-				debug.setconstant(bedwars.DamageIndicator, 102, callback and 'Thickness' or 'Enabled')
+				debug.setconstant(bedwars.DamageIndicator, 119, callback and 'Thickness' or 'Enabled')
 				tab.strokeThickness = callback and 1 or false
 			end
 		end
@@ -8190,105 +8253,5 @@ run(function()
 		List = WinEffectName
 	})
 end)
-run(function()
-    local texturepack = {Enabled = false}
-	local packDropdown = {Value = "Melo Pack"}
 
-	local ogpackloader = game:GetObjects("rbxassetid://14027120450")
-	local ogtxtpack = ogpackloader[1]
-	ogtxtpack.Name = "OG Pack"
-	ogtxtpack.Parent = replicatedStorage
-	task.wait()
-	local melopackloader = game:GetObjects("rbxassetid://14774202839")
-	local melotxtpack = melopackloader[1]
-	melotxtpack.Name = "Melo's Pack"
-	melotxtpack.Parent = replicatedStorage
-	task.wait()
-	local azzapackloader = game:GetObjects("rbxassetid://14803122185")
-	local azzatxtpack = azzapackloader[1]
-	azzatxtpack.Name = "4zze's Pack"
-	azzatxtpack.Parent = replicatedStorage
-	local viewmodelCon
-	local textures = {
-		["OG Pack"] = ogtxtpack,
-		["Melo's Pack"] = melotxtpack,
-		["4zze's Pack"] = azzatxtpack
-	}
-
-	local function refreshViewmodel(child)
-		for i,v in pairs(textures[packDropdown.Value]:GetChildren()) do
-			if string.lower(v.Name) == child.Name and child.Parent.Name ~= child.Name then
-				-- first person viewmodel check
-				for i1,v1 in pairs(child:GetDescendants()) do
-					if v1:IsA("Part") or v1:IsA("MeshPart") then
-						v1.Transparency = 1
-					end
-				end
-				-- third person viewmodel check
-				for i1,v1 in pairs(playersService.LocalPlayer.Character:GetChildren()) do
-					if v1.Name == string.lower(v.Name) then
-						for i2,v2 in pairs(v1:GetDescendants()) do
-							if v2.Name ~= child.Name then
-								if v2:IsA("Part") or v2:IsA("MeshPart") then
-									v2.Transparency = 1
-									v2:GetPropertyChangedSignal("Transparency"):Connect(function()
-										v2.Transparency = 1
-									end)
-								end
-							end
-						end
-					end
-				end
-				-- first person txtpack renderer
-				local vmmodel = v:Clone()
-				vmmodel.CFrame = child.Handle.CFrame 
-				vmmodel.CFrame = vmmodel.CFrame * (packDropdown.Value == "OG Pack" and CFrame.new(0, -0.2, 0) or packDropdown.Value == "Melo's Pack" and CFrame.new(0.2, -0.2, 0) or packDropdown.Value == "4zze's Pack" and CFrame.new(0.8,0.1,0.7)) * CFrame.Angles(math.rad(90),math.rad(-130),math.rad(0))
-				if string.lower(child.Name) == "rageblade" then vmmodel.CFrame = vmmodel.CFrame * CFrame.Angles(math.rad(-180),math.rad(100),math.rad(0)) end
-				if string.lower(child.Name):find("pickaxe") then vmmodel.CFrame = vmmodel.CFrame * CFrame.Angles(math.rad(-55),math.rad(-30),math.rad(50)) end
-				if string.lower(child.Name):find("scythe") then vmmodel.CFrame = vmmodel.CFrame * CFrame.Angles(math.rad(-65),math.rad(-80),math.rad(100)) * CFrame.new(-2.8,0.4,-0.8) end
-				if (string.lower(child.Name):find("axe")) and not (string.lower(child.Name):find("pickaxe")) then vmmodel.CFrame = vmmodel.CFrame * CFrame.Angles(math.rad(-55),math.rad(-30),math.rad(50)) * (packDropdown.Value == "Melo's Pack" and CFrame.new(-0.2,0,0.2) or packDropdown.Value == "4zze's Pack" and CFrame.new(-1.5,0,-0.8)) end
-				vmmodel.Parent = child
-				local vmmodelweld = Instance.new("WeldConstraint",vmmodel)
-				vmmodelweld.Part0 = vmmodelweld.Parent
-				vmmodelweld.Part1 = child.Handle
-				-- third person txtpack renderer
-				local charmodel = v:Clone()
-				charmodel.CFrame = playersService.LocalPlayer.Character[child.Name]:FindFirstChild("Handle").CFrame
-				charmodel.CFrame = charmodel.CFrame * (packDropdown.Value == "OG Pack" and CFrame.new(0, -0.5, 0) or packDropdown.Value == "Melo's Pack" and CFrame.new(0.2, -0.9, 0) or packDropdown.Value == "4zze's Pack" and CFrame.new(0.1,-1.2,0)) * CFrame.Angles(math.rad(90),math.rad(-130),math.rad(0))
-				if string.lower(child.Name) == "rageblade" then charmodel.CFrame = charmodel.CFrame * CFrame.Angles(math.rad(-180),math.rad(100),math.rad(0)) * CFrame.new(0.8,0,-1.1) end
-				if string.lower(child.Name):find("pickaxe") then charmodel.CFrame = charmodel.CFrame * CFrame.Angles(math.rad(-55),math.rad(-30),math.rad(50)) * CFrame.new(-0.8,-0.2,1.1) end
-				if string.lower(child.Name):find("scythe") then charmodel.CFrame = charmodel.CFrame * CFrame.Angles(math.rad(-65),math.rad(-80),math.rad(100)) * CFrame.new(-1.8,-0.5,0) end
-				if (string.lower(child.Name):find("axe")) and not (string.lower(child.Name):find("pickaxe")) then charmodel.CFrame = charmodel.CFrame * CFrame.Angles(math.rad(-55),math.rad(-30),math.rad(50)) * CFrame.new(-1.4,-0.2,0.6) end
-				charmodel.Anchored = false
-				charmodel.CanCollide = false
-				charmodel.Parent = playersService.LocalPlayer.Character[child.Name]
-				local charmodelweld = Instance.new("WeldConstraint",charmodel)
-				charmodelweld.Part0 = charmodelweld.Parent
-				charmodelweld.Part1 = playersService.LocalPlayer.Character[child.Name].Handle
-			end
-		end
-	end
-
-	texturepack = vape.Categories.Render:CreateModule({
-        Name = "TexturePack",
-        HoverText = "Modifies your renderer",
-        Function = function(callback)
-            if callback then
-				if gameCamera.Viewmodel:FindFirstChildWhichIsA("Accessory") then refreshViewmodel(gameCamera.Viewmodel:FindFirstChildWhichIsA("Accessory")) end
-				viewmodelCon = workspace.Camera.Viewmodel.ChildAdded:Connect(function(child)
-					refreshViewmodel(child)
-				end)
-            else
-                if viewmodelCon then pcall(function() viewmodelCon:Disconnect() end) end
-            end
-        end,
-		ExtraText = function()
-            return packDropdown.Value
-        end
-    })
-	packDropdown = texturepack:CreateDropdown({
-		Name = "Texture",
-		List = {"OG Pack","Melo's Pack","4zze's Pack"},
-		Function = function(val) end
-	})
-end)
+																																																																																																																																																				
