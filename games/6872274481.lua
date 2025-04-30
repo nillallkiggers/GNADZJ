@@ -8798,3 +8798,4 @@ run(function()
 		Tooltip = 'Automatically store items so you don\'t lose them.'
 	})
 end)
+
