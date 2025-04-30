@@ -7883,3 +7883,38 @@ run(function()
 	
 end)
 	
+run(function()
+	local InfiniteJump
+	local Mode
+	local jumps = 0
+	InfiniteJump = vape.Categories.Blatant:CreateModule({
+		Name = "Infinite Jump",
+		Tooltip = "Allows you to jump infinitely.",
+		Function = function(callback: boolean)
+			if callback then
+				jumps = 0
+				InfiniteJump:Clean(inputService.JumpRequest:Connect(function()
+					jumps += 1
+					if jumps > 1 then
+						if Mode.Value == "Jump" then
+							entitylib.character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+						elseif Mode.Value == "Velocity" then
+							local power = math.sqrt(2 * workspace.Gravity * entitylib.character.Humanoid.JumpHeight)
+							entitylib.character.RootPart.Velocity = Vector3.new(entitylib.character.RootPart.Velocity.X, power, entitylib.character.RootPart.Velocity.Z)
+						end
+					end
+				end))
+				InfiniteJump:Clean(entitylib.character.Humanoid.StateChanged:Connect(function(old, new)
+					if old == Enum.HumanoidStateType.Freefall and new == Enum.HumanoidStateType.Landed then
+						jumps = 0
+					end
+				end))
+			end
+		end,
+		ExtraText = function() return Mode.Value end
+	})
+	Mode = InfiniteJump:CreateDropdown({
+		Name = "Mode",
+		List = {"Jump", "Velocity"}
+	})
+end)
