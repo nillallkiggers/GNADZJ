@@ -8255,3 +8255,546 @@ run(function()
 end)
 
 																																																																																																																																																				
+run(function()
+	local FlySpeed
+	local VerticalSpeed
+
+	local rayCheck = RaycastParams.new()
+	local reduceAirTime = false
+
+	local oldroot
+	local clone
+
+	local up = 0
+	local down = 0
+	local hip = 2
+
+	local function createClone()
+		if entitylib.isAlive and entitylib.character.Humanoid.Health > 0 and (not oldroot or not oldroot.Parent) then
+			hip = entitylib.character.Humanoid.HipHeight
+			oldroot = entitylib.character.HumanoidRootPart
+			if not lplr.Character.Parent then return false end
+			lplr.Character.Parent = game
+			clone = oldroot:Clone()
+			clone.Parent = lplr.Character
+			oldroot.CanCollide = true
+			oldroot.Parent = gameCamera
+			store.rootpart = clone
+			Instance.new('Highlight', oldroot)
+			bedwars.QueryUtil:setQueryIgnored(oldroot, true)
+			lplr.Character.PrimaryPart = clone
+			lplr.Character.Parent = workspace
+			for _, v in lplr.Character:GetDescendants() do
+				if v:IsA('Weld') or v:IsA('Motor6D') then
+					if v.Part0 == oldroot then v.Part0 = clone end
+					if v.Part1 == oldroot then v.Part1 = clone end
+				end
+			end
+			return true
+		end
+		return false
+	end
+
+	local function destroyClone()
+		if not oldroot or not oldroot.Parent or not entitylib.isAlive then return false end
+		lplr.Character.Parent = game
+		oldroot.Parent = lplr.Character
+		lplr.Character.PrimaryPart = oldroot
+		lplr.Character.Parent = workspace
+		for _, v in lplr.Character:GetDescendants() do
+			if v:IsA('Weld') or v:IsA('Motor6D') then
+				if v.Part0 == clone then v.Part0 = oldroot end
+				if v.Part1 == clone then v.Part1 = oldroot end
+			end
+		end
+		if clone then
+			clone:Destroy()
+			clone = nil
+		end
+		entitylib.character.Humanoid.HipHeight = hip or 2
+		oldroot.Transparency = 1
+		oldroot = nil
+		store.rootpart = nil
+	end
+
+	InfiniteFly = vape.Categories.Blatant:CreateModule({
+		Name = 'Infinite Fly',
+		Tooltip = 'Allows you to hover in the air for eternity.',
+		Function = function(call)
+			if call then
+				if not entitylib.isAlive or FlyLandTick > tick() or not isnetworkowner(entitylib.character.RootPart) then
+					notif('InfiniteFly', 'Can\'t Fly at this position.', 10, 'alert')
+					return InfiniteFly:Toggle()
+				end
+				local a, b = pcall(createClone)
+				if not a then
+					return InfiniteFly:Toggle()
+				end
+				rayCheck.FilterDescendantsInstances = {lplr.Character, AntiFallPart, oldroot, clone}
+				local currenty = entitylib.character.RootPart.Position.Y
+				InfiniteFly:Clean(inputService.InputBegan:Connect(function(input)
+					if not inputService:GetFocusedTextBox() then
+						if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
+							up = 1
+						elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.ButtonL2 then
+							down = -1
+						end
+					end
+				end))
+				InfiniteFly:Clean(inputService.InputEnded:Connect(function(input)
+					if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
+						up = 0
+					elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.ButtonL2 then
+						down = 0
+					end
+				end))
+				InfiniteFly:Clean(runService.PreSimulation:Connect(function(delta)
+					if not entitylib.isAlive or not clone or not clone.Parent or not isnetworkowner(oldroot) then
+						return InfiniteFly:Toggle()
+					end
+					FlyLandTick = tick() + 1
+					local mass = 1.5 + ((up + down) * VerticalSpeed.Value)
+					local moveDir = entitylib.character.Humanoid.MoveDirection
+					local velo = getSpeed()
+					local destination = (moveDir * math.max(FlySpeed.Value - velo, 0) * delta)
+					clone.CFrame += destination
+					clone.AssemblyLinearVelocity = (moveDir * velo) + Vector3.new(0, mass, 0)
+					oldroot.CFrame = CFrame.lookAlong(Vector3.new(clone.Position.X, oldroot.Position.Y, clone.Position.Z), clone.CFrame.LookVector)
+					local airtime = reduceAirTime and 0 or (tick() - entitylib.character.AirTime)
+					if (airtime > 1.2 or workspace:Raycast(clone.Position, Vector3.new(0, -1000, 0), rayCheck)) then
+						local ray = workspace:Raycast(clone.Position, Vector3.new(0, -1000, 0), rayCheck)
+						if ray then
+							oldroot.CFrame = CFrame.lookAlong(Vector3.new(oldroot.Position.X, ray.Position.Y + entitylib.character.HipHeight, oldroot.Position.Z), clone.CFrame.LookVector)
+							oldroot.Velocity = Vector3.zero
+						else
+							reduceAirTime = true
+						end
+					elseif airtime < 0.7 and oldroot.CFrame.Y < (currenty - 100) then
+						oldroot.CFrame += Vector3.new(0, currenty + 250, 0)
+						reduceAirTime = false
+					end
+				end))
+			else
+				notif('InfiniteFly', 'Waiting 1.1s to land', 1.1, 'alert')
+				up = 0
+				down = 0
+				FlyLandTick = tick() + 1.1
+				repeat 
+					if not entitylib.isAlive or not isnetworkowner(oldroot) then 
+						break 
+					end
+					local ray = workspace:Raycast(oldroot.Position, Vector3.new(0, -1000, 0), rayCheck) 
+					if ray then
+						oldroot.Velocity = Vector3.zero
+						oldroot.CFrame = CFrame.lookAlong(Vector3.new(oldroot.Position.X, ray.Position.Y + entitylib.character.HipHeight, oldroot.Position.Z), oldroot.CFrame.LookVector)
+					end
+					task.wait() 
+				until tick() > FlyLandTick
+				destroyClone()
+				notif('InfiniteFly', 'Landed', 8, 'alert')
+			end
+		end
+	})
+	FlySpeed = InfiniteFly:CreateSlider({
+		Name = 'Speed',
+		Min = 1,
+		Max = 23,
+		Default = 23
+	})
+	VerticalSpeed = InfiniteFly:CreateSlider({
+		Name = 'Vertical Speed',
+		Min = 1,
+		Max = 150,
+		Default = 70
+	})
+end)
+
+run(function()
+    local damageboost = nil
+    local damageboostduration = nil
+    local damageboostmultiplier = nil
+    damageboost = vape.Categories.Blatant:CreateModule({
+        Name = 'Damage Boost',
+        Tooltip = 'Makes you go faster whenever you take knockback.',
+        Function = function(callback)
+            if callback then
+                damageboost:Clean(vapeEvents.EntityDamageEvent.Event:Connect(function(damageTable)
+                    local player = damageTable.entityInstance and playersService:GetPlayerFromCharacter(damageTable.entityInstance)
+                    if player and player == lplr and (damageTable.knockbackMultiplier and damageTable.knockbackMultiplier.horizontal and damageTable.knockbackMultiplier.horizontal > 0 or playersService:GetPlayerFromCharacter(damageTable.fromEntity) ~= nil) and not vape.Modules['Long Jump'].Enabled then
+                        damagedata.Multi = damageboostmultiplier.Value --+ (damageTable.knockbackMultiplier.horizontal / 2)
+                        damagedata.lastHit = tick() + damageboostduration.Value
+                    end
+                end))
+            end
+        end
+    })
+    damageboostduration = damageboost:CreateSlider({
+        Name = 'Duration',
+        Min = 0,
+        Max = 2,
+        Decimal = 20,
+        Default = 0.4,
+    })
+    damageboostmultiplier = damageboost:CreateSlider({
+        Name = 'Multiplier',
+        Min = 0,
+        Max = 2,
+        Decimal = 20,
+        Default = 1.4,
+    })
+end)
+
+run(function()
+	local antihit = nil :: table
+	local antihitrange = nil :: table
+	local antihitairtime = nil :: table
+	local antihitsettings = nil :: table
+	local antihitgroundtime = nil :: table
+	local antihitautoair = nil :: table
+
+	local oldroot
+	local clone
+
+	local function createClone()
+		if entitylib.isAlive and entitylib.character.Humanoid.Health > 0 and (not oldroot or not oldroot.Parent) then
+			hip = entitylib.character.Humanoid.HipHeight
+			oldroot = entitylib.character.HumanoidRootPart
+			if not lplr.Character.Parent then return false end
+			lplr.Character.Parent = game
+			clone = oldroot:Clone()
+			clone.Parent = lplr.Character
+			oldroot.Parent = gameCamera
+			bedwars.QueryUtil:setQueryIgnored(oldroot, true)
+			lplr.Character.PrimaryPart = clone
+			lplr.Character.Parent = workspace
+			for _, v in lplr.Character:GetDescendants() do
+				if v:IsA('Weld') or v:IsA('Motor6D') then
+					if v.Part0 == oldroot then v.Part0 = clone end
+					if v.Part1 == oldroot then v.Part1 = clone end
+				end
+			end
+			return true
+		end
+		return false
+	end
+	
+	local function destroyClone()
+		if not oldroot or not oldroot.Parent or not entitylib.isAlive then return false end
+		lplr.Character.Parent = game
+		oldroot.Parent = lplr.Character
+		lplr.Character.PrimaryPart = oldroot
+		lplr.Character.Parent = workspace
+		oldroot.CanCollide = true
+		for _, v in lplr.Character:GetDescendants() do
+			if v:IsA('Weld') or v:IsA('Motor6D') then
+				if v.Part0 == clone then v.Part0 = oldroot end
+				if v.Part1 == clone then v.Part1 = oldroot end
+			end
+		end
+		local oldcf = clone.CFrame
+		if clone then
+			clone:Destroy()
+			clone = nil
+		end
+		oldroot.Transparency = 1
+		oldroot = nil
+		entitylib.character.RootPart.CFrame = oldcf + Vector3.new(0, 12, 0)
+		task.spawn(function()
+			for i = 1, 12 do
+				entitylib.character.RootPart.Velocity = Vector3.zero
+				task.wait()
+			end
+		end)
+		entitylib.character.Humanoid.HipHeight = 2
+	end
+
+	local rayCheck = RaycastParams.new()
+
+	local getY = function()
+		if oldroot and oldroot.Parent then
+			local lasty = -60
+			if not workspace:Raycast(oldroot.Position - Vector3.new(0, lasty, 0), Vector3.new(0, 5, 0), rayCheck) then
+				return lasty
+			end
+			for i = 1, 12 do
+				lasty -= 10
+				if not workspace:Raycast(oldroot.Position - Vector3.new(0, lasty, 0), Vector3.new(0, 5, 0), rayCheck) and not workspace:Raycast(oldroot.Position - Vector3.new(0, lasty, 0), Vector3.new(0, -5, 0), rayCheck) then
+					return lasty
+				end
+			end
+		end
+		return -100
+	end
+
+	local tpbackup = false
+
+	local lastantihitting = nil
+
+	local projectileHitting = false
+
+	antihit = vape.Categories.Blatant:CreateModule({
+		Name = 'Anti Hit',
+		Function = function(call)
+			if call then
+				antihit:Clean(runService.PreSimulation:Connect(function()
+					if entitylib.isAlive and tick() > FlyLandTick then
+						local cf = clone and clone.Parent and {clone.CFrame:GetComponents()} or {entitylib.character.HumanoidRootPart.CFrame:GetComponents()}
+						if store.KillauraTarget and not antihitting then
+							cf[2] = store.KillauraTarget.Character.PrimaryPart.CFrame.Y
+						end
+						if oldroot and oldroot.Parent then
+							oldroot.CFrame = antihitting and (tick() - entitylib.character.AirTime) < 2 and CFrame.new(clone.CFrame.X, oldroot.CFrame.Y, clone.CFrame.Z) or CFrame.new(unpack(cf)) + Vector3.new(0, 6, 0)
+							if not antihitting and lastantihitting then
+								lastantihitting = antihitting
+								for i = 1, 4 do
+									oldroot.Velocity = Vector3.zero
+									task.wait()
+								end
+							else
+								lastantihitting = antihitting
+							end
+						end
+					end
+				end))
+				repeat
+				  	if store.matchState == 0 or not entitylib.isAlive or tick() < FlyLandTick then task.wait() continue end
+					rayCheck.FilterDescendantsInstances = {lplr.Character, AntiFallPart}
+					local plr = entitylib.AllPosition({
+						Range = antihitrange.Value,
+						Part = 'RootPart',
+						Players = antihitsettings.Players.Enabled,
+						NPCs = antihitsettings.NPCs.Enabled,
+						Limit = 1
+					})[1]
+					if entitylib.character.AirTime and plr and (tick() - entitylib.character.AirTime) < 2 or projectileHitting then
+						createClone()
+						if tpbackup then
+							tpbackup = false
+						else
+							tpbackup = true
+						end
+						antihitting = not tpbackup
+						projectileHitting = false
+						if not tpbackup then
+							oldroot.CFrame += Vector3.new(0, getY(), 0)
+						end
+					else
+						antihitting = false
+						destroyClone()
+					end
+					local delayv = antihitautoair.Enabled and (tpbackup and store.attackSpeed and 0.14) or (tpbackup and antihitairtime.Value or antihitgroundtime.Value) 
+					task.wait(delayv)
+				until not antihit.Enabled
+			else
+				destroyClone()
+				tpbackup = false
+			end
+		end
+	})
+	antihitsettings = antihit:CreateTargets({
+		Players = true, 
+		NPCs = false
+	})
+	antihitautoair = antihit:CreateToggle({
+		Name = 'Auto Predict',
+		Default = true,
+		Function = function(call)
+			if antihitairtime then
+				antihitairtime.Object.Visible = not call
+				antihitgroundtime.Object.Visible = not call
+			end
+		end
+	})
+	antihitrange = antihit:CreateSlider({
+		Name = 'Range',
+		Min = 1,
+		Max = 40,
+		Default = 25
+	})
+	antihitgroundtime = antihit:CreateSlider({
+		Name = 'Ground Time',
+		Decimal = 15,
+		Min = 0,
+		Max = 2,
+		Default = 0.14
+	})
+	antihitairtime = antihit:CreateSlider({
+		Name = 'Air Time',
+		Decimal = 15,
+		Min = 0,
+		Max = 2,
+		Default = 0.2
+	})
+	antihitgroundtime.Object.Visible = false
+	antihitairtime.Object.Visible = false
+end)
+
+run(function()
+	local autobankui;
+	local AutoBank
+	local explode = false
+	local wowie = {}
+	local alldropped = false
+	local sigmaitems3 = {}
+	local sigmaitems = {}
+	AutoBank = vape.Categories.Utility:CreateModule({
+		Name = 'Auto Bank',
+		Function = function(callback)
+			if callback then
+				if autobankui then
+					autobankui:Destroy()
+					autobankui = nil
+				end
+				autobankui = Instance.new('Frame')
+				autobankui.Size = UDim2.new(0, 240, 0, 40)
+				autobankui.AnchorPoint = Vector2.new(0.5, 0)
+				autobankui.Position = UDim2.new(0.5, 0, 0, -240)
+				autobankui.Visible = true
+				task.spawn(function()
+					repeat
+						task.wait()
+						if autobankui then 
+							local hotbar = lplr.PlayerGui:FindFirstChild('hotbar')
+							if hotbar then 
+								local healthbar = hotbar['1']:FindFirstChild('HotbarHealthbarContainer')
+								if healthbar then 
+									autobankui.Position = UDim2.new(0.5, 0, 0, healthbar.AbsolutePosition.Y - 30)
+								end
+							end
+						else
+							break
+						end
+					until (not AutoBank.Enabled)
+				end)
+				autobankui.BackgroundTransparency = 1
+				autobankui.Parent = vape.gui
+				local emerald = Instance.new('ImageLabel')
+				emerald.Image = bedwars.getIcon({itemType = 'emerald'}, true)
+				emerald.Size = UDim2.new(0, 40, 0, 40)
+				emerald.Name = 'emerald'
+				emerald.Position = UDim2.new(0, 160, 0, 0)
+				emerald.BackgroundTransparency = 1
+				emerald.Parent = autobankui
+				local emeraldtext = Instance.new('TextLabel')
+				emeraldtext.TextSize = 20
+				emeraldtext.BackgroundTransparency = 1
+				emeraldtext.Size = UDim2.new(1, 0, 1, 0)
+				emeraldtext.Font = Enum.Font.SourceSans
+				emeraldtext.TextStrokeTransparency = 0.3
+				emeraldtext.Name = 'amount'
+				emeraldtext.Text = '0'
+				emeraldtext.TextColor3 = Color3.new(1, 1, 1)
+				emeraldtext.Parent = emerald
+				local diamond = emerald:Clone()
+				diamond.Image = bedwars.getIcon({itemType = 'diamond'}, true)
+				diamond.Position = UDim2.new(0, 120, 0, 0)
+				diamond.Name = 'diamond'
+				diamond.Parent = autobankui
+				local gold = emerald:Clone()
+				gold.Image = bedwars.getIcon({itemType = 'gold'}, true)
+				gold.Position = UDim2.new(0, 80, 0, 0)
+				gold.Name = 'gold'
+				gold.Parent = autobankui
+				local iron = emerald:Clone()
+				iron.Image = bedwars.getIcon({itemType = 'iron'}, true)
+				iron.Position = UDim2.new(0, 40, 0, 0)
+				iron.Name = 'iron'
+				iron.Parent = autobankui
+				local echest = replicatedStorage.Inventories:FindFirstChild(lplr.Name..'_personal')
+				task.spawn(function()
+					AutoBank:Clean(workspace.ItemDrops.ChildAdded:Connect(function(v)
+						for _, x in sigmaitems2 do
+							if isnetworkowner(v) and v:GetAttribute('DropTime') == x then
+								v.CFrame = v.CFrame + Vector3.new(0, 10000, 0)
+								v.Anchored = true
+								v.Transparency = 1
+								table.insert(sigmaitems, v)
+							end
+						end
+					end))
+					repeat
+						task.wait(0.1)
+						if entitylib.isAlive then
+							for _, v in store.shop do
+								if (v.RootPart.Position - entitylib.character.RootPart.Position).Magnitude <= 20 and not table.find(wowie, v.RootPart.Position) then
+									table.insert(wowie, v.RootPart.Position)
+									explode = true
+								elseif explode and not alldropped then
+									for _, v in sigmaitems do
+										task.wait()
+										v.CFrame = entitylib.character.RootPart.CFrame
+										v.Anchored = false
+										v.Velocity = Vector3.new(0, 0, 0)
+										v.Transparency = 1
+										task.spawn(function()
+											for i = 1,5 do 
+												replicatedStorage.rbxts_include.node_modules['@rbxts'].net.out._NetManaged.PickupItemDrop:InvokeServer({itemDrop = v})
+												task.wait(0.15)
+											end
+										end)
+									end
+									alldropped = true
+									sigmaitems = {}
+									sigmaitems2 = {}
+									sigmaitems3 = {}
+									task.spawn(function()
+										repeat task.wait()
+											alldropped = false
+											for _, x in wowie do
+												if (x - entitylib.character.RootPart.Position).Magnitude >= 21 then
+													explode = false
+													wowie = {}
+												end
+											end
+										until (not AutoBank.Enabled or not explode)
+									end)
+								elseif alldropped then
+									for i,v in autobankui:GetChildren() do
+										v.amount.Text = '0'
+									end
+								else
+									for _, item in {'iron', 'diamond', 'emerald', 'gold'} do 
+										local itemname = item
+										item = getItem(item)
+										if item then
+											wowie = {}
+											table.insert(sigmaitems2, math.floor(workspace:GetServerTimeNow())) 
+											local itemamount = item.amount
+											item = replicatedStorage.rbxts_include.node_modules['@rbxts'].net.out._NetManaged.DropItem:InvokeServer({
+												item = item.tool,
+												amount = item.amount
+											})
+											if not sigmaitems3[itemname] then
+												sigmaitems3[itemname] = {}
+											end
+											table.insert(sigmaitems3[itemname], item);
+											local amount1 = itemamount + tonumber(autobankui:FindFirstChild(itemname).amount.Text)
+											local amount = tostring(amount1);
+											amount = #amount >= 5 and '9999+' or amount
+											autobankui:FindFirstChild(itemname).amount.Text = amount
+										end
+									end
+								end
+							end
+						end
+					until (not AutoBank.Enabled)
+				end)
+			else
+				if autobankui then
+					autobankui:Destroy()
+					autobankui = nil
+				end
+				alldropped = false
+				explode = false
+				for _, v in sigmaitems do
+					v.CFrame = entitylib.character.RootPart.CFrame
+				end
+				sigmaitems = {}
+				sigmaitems2 = {}
+				sigmaitems3 = {}
+				wowie = {}
+			end
+		end,
+		Tooltip = 'Automatically store items so you don\'t lose them.'
+	})
+end)
