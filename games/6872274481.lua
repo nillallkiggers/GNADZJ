@@ -8900,3 +8900,135 @@ run(function()
 		Function = function(val) end
 	})
 end)
+
+runfunction(function()
+    local vape         = shared.vape
+    local lplr         = game:GetService("Players").LocalPlayer
+    local camera       = workspace.CurrentCamera
+    local runservice   = game:GetService("RunService")
+    local bedwars      = vape.import("bedwars")
+    local store        = vape.store
+    local worldModule  = vape.Categories.World:CreateModule({
+        Name    = "MouseTP",
+        Tooltip = "Teleports to the block nearest your mouse position."
+    })
+
+    local autospeed = worldModule:CreateToggle({
+        Name    = "Auto Speed",
+        Default = true,
+        Callback = function() end
+    })
+
+    local methodSelect = worldModule:CreateDropdown({
+        Name    = "Teleport Method",
+        Options = { "Recall", "Respawn" },
+        Default = "Recall",
+        Callback = function() end
+    })
+
+    local tweenStyle = worldModule:CreateDropdown({
+        Name    = "Tween Style",
+        Options = { "Linear", "Sine", "Quad", "Cubic", "Quart", "Quint", "Expo", "Back", "Bounce", "Elastic" },
+        Default = "Linear",
+        Callback = function() end
+    })
+
+    local tweenSpeed = worldModule:CreateSlider({
+        Name    = "Tween Speed",
+        Min     = 1,
+        Max     = 500,
+        Default = 100,
+        Callback = function() end
+    })
+
+    local tpThread
+
+    worldModule.Function = function(enabled)
+        if enabled then
+            local ray = workspace:Raycast(camera.CFrame.Position, lplr:GetMouse().UnitRay.Direction * 1e4, store.raycast)
+            if not ray then return worldModule:Toggle(false) end
+
+            tpThread = task.spawn(function()
+                local part = ray.Instance
+                local fn = (not isAlive(lplr, true)) and mousetpfuncs.Respawn or mousetpfuncs[methodSelect.Value]
+                local ok, err = pcall(fn, part)
+                worldModule:Toggle(false)
+                if not ok then
+                    vape.notifications:Error("MouseTP", "An error occurred" .. (vape.settings.RenderDebug and " → "..err or "."), 7)
+                end
+            end)
+        else
+            if tpThread then task.cancel(tpThread) end
+        end
+    end
+
+    local mousetpfuncs = {
+        Recall = function(part)
+            if not isAlive(lplr, true) or not bedwars.AbilityController:canUseAbility("recall") then return end
+            bedwars.AbilityController:useAbility("recall")
+            lplr:GetAttributeChangedSignal("LastTeleported"):Wait()
+            task.wait(0.1)
+            if bedwars.AbilityController:canUseAbility("recall") then
+                local dist = (part.Position - lplr.Character.PrimaryPart.Position).Magnitude
+                local speed = (autospeed.Enabled and (dist/1000) + math.random(5,30)/1000) or (tweenSpeed.Value/1000) + 0.1
+                local style = autospeed.Enabled and Enum.EasingStyle.Linear or Enum.EasingStyle[tweenStyle.Value]
+                local tw = tween:Create(lplr.Character.PrimaryPart, TweenInfo.new(speed, style), { CFrame = part.CFrame + Vector3.new(0,5,0) })
+                tw:Play(); tw.Completed:Wait()
+                task.delay(0.8, function()
+                    if isAlive(lplr, true) and not isnetworkowner(lplr.Character.PrimaryPart) then
+                        vape.notifications:Error("MouseTP", "Failed due to lagback. Ping → "..math.floor(render.ping), 10)
+                    end
+                end)
+            end
+        end,
+
+        Respawn = function(part)
+            if isAlive(lplr, true) then
+                local hum = lplr.Character:FindFirstChildOfClass("Humanoid")
+                hum.Health = 0; hum:ChangeState(Enum.HumanoidStateType.Dead)
+            end
+            lplr.CharacterAdded:Wait()
+            repeat task.wait() until isAlive(lplr, true)
+            task.wait(0.1)
+            local dist = (part.Position - lplr.Character.PrimaryPart.Position).Magnitude
+            local speed = (autospeed.Enabled and (dist/1000) + math.random(5,30)/1000) or (tweenSpeed.Value/1000) + 0.1
+            local style = autospeed.Enabled and Enum.EasingStyle.Linear or Enum.EasingStyle[tweenStyle.Value]
+            local tw = tween:Create(lplr.Character.PrimaryPart, TweenInfo.new(speed, style), { CFrame = part.CFrame + Vector3.new(0,5,0) })
+            tw:Play(); tw.Completed:Wait()
+            task.delay(0.8, function()
+                if isAlive(lplr, true) and not isnetworkowner(lplr.Character.PrimaryPart) then
+                    vape.notifications:Error("MouseTP", "Failed due to lagback. Ping → "..math.floor(render.ping), 10)
+                end
+            end)
+        end
+    }
+end)
+
+runfunction(function()
+    local vape    = shared.vape
+    local lplr    = game:GetService("Players").LocalPlayer
+    local combat  = vape.Categories.Combat:CreateModule({
+        Name    = "AutoExcalibur",
+        Tooltip = "Automatically picks up the Excalibur sword."
+    })
+
+    local thread
+
+    combat.Function = function(enabled)
+        if enabled then
+            thread = task.spawn(function()
+                while combat.Enabled do
+                    task.wait(0.1)
+                    if not isAlive(lplr, true) then continue end
+                    for _, v in ipairs(game:GetService("CollectionService"):GetTagged("Excalibur")) do
+                        if (lplr.Character.PrimaryPart.Position - v.Position).Magnitude <= 5 then
+                            bedwars.Client:Get("RequestExcaliburSword"):CallServer({ excalibur = v })
+                        end
+                    end
+                end
+            end)
+        else
+            if thread then task.cancel(thread) end
+        end
+    end
+end)
