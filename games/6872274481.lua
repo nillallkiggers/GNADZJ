@@ -8901,4 +8901,85 @@ run(function()
 	})
 end)
 
+runfunction(function()
+    local vape     = shared.vape
+    local bedwars  = vape.import("bedwars")
+    local lplr     = game:GetService("Players").LocalPlayer
+    local renderperf = vape.settings.renderperformance
+
+    local funny = vape.Categories.Blatant:CreateModule({
+        Name    = "FunnyExploit",
+        Tooltip = "Plays effects on the serverside to annoy players."
+    })
+
+    local confettiToggle = funny:CreateToggle({
+        Name    = "Confetti",
+        Default = true,
+        Callback = function() end
+    })
+
+    local silentConfetti = funny:CreateToggle({
+        Name      = "Silent Confetti",
+        Tooltip   = "Disables the confetti's sound.",
+        Default   = false,
+        Callback  = function(state)
+            bedwars.SoundList.CONFETTI_POPPER = state and "" or bedwars.SoundList.CONFETTI_POPPER
+        end
+    })
+
+    local dragonToggle = funny:CreateToggle({
+        Name    = "Dragon Breathe",
+        Default = true,
+        Callback = function() end
+    })
+
+    local kaCheck = funny:CreateToggle({
+        Name    = "Killaura Check",
+        Tooltip = "Only runs if killaura is attacking.",
+        Default = false,
+        Callback = function() end
+    })
+
+    local delaySlider = funny:CreateSlider({
+        Name    = "Delay",
+        Min     = 0,
+        Max     = 30,
+        Default = 3,
+        Callback = function() end
+    })
+
+    local thread
+    local originalSound = bedwars.SoundList.CONFETTI_POPPER
+
+    funny.Function = function(enabled)
+        if enabled then
+            thread = task.spawn(function()
+                if renderperf.reducelag then return end
+                repeat
+                    task.wait()
+                    if render.ping > 500 then
+                        continue
+                    end
+                    if kaCheck.Enabled and not vapeTargetInfo.Targets.Killaura then
+                        continue
+                    end
+                    if confettiToggle.Enabled and bedwars.AbilityController:canUseAbility("PARTY_POPPER") then
+                        bedwars.AbilityController:useAbility("PARTY_POPPER")
+                    end
+                    if dragonToggle.Enabled then
+                        bedwars.Client:Get("DragonBreath"):SendToServer({ player = lplr })
+                    end
+                    local start = tick()
+                    local d = delaySlider.Value
+                    repeat task.wait() until (kaCheck.Enabled and vapeTargetInfo.Targets.Killaura)
+                        or delaySlider.Value ~= d
+                        or (tick() - start) >= (0.1 * d)
+                until not funny.Enabled
+            end)
+        else
+            if thread then task.cancel(thread) end
+            bedwars.SoundList.CONFETTI_POPPER = originalSound
+        end
+    end
+end)
 
